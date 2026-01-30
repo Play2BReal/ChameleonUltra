@@ -61,7 +61,11 @@ static bool m_is_a_btn_release = false;
 static bool m_system_off_processing = false;
 
 // NFC field generator state
-volatile bool m_is_field_on = false;  
+volatile bool m_is_field_on = false;
+// Track which button activated field generator ('a' or 'b', 0 if not set)
+static char m_field_gen_activation_button = 0;
+// Track LED state when field generator is active (true = LEDs on, false = LEDs off)
+static bool m_field_gen_leds_on = true;  
 
 // cpu reset reason
 static uint32_t m_reset_source;
@@ -151,7 +155,7 @@ static void field_generator_rainbow_loop(void) {
     static uint8_t color_index = 0;
     static uint32_t last_update = 0;
     
-    if (!m_is_field_on) return;
+    if (!m_is_field_on || !m_field_gen_leds_on) return;
     
     uint32_t now = app_timer_cnt_get();
     
@@ -819,14 +823,16 @@ static void run_button_function_by_settings(settings_button_function_t sbf) {
                 pcd_14a_reader_reset();
                 pcd_14a_reader_antenna_on();
                 m_is_field_on = true;
+                m_field_gen_leds_on = true;
                 NRF_LOG_INFO("NFC field ON");
                 
-                // Set initial rainbow state
+                // Initialize LEDs - set initial rainbow state
                 set_slot_light_color(RGB_RED);
                 uint32_t *led_pins = hw_get_led_array();
                 for (int i = 0; i < RGB_LIST_NUM; i++) {
                     nrf_gpio_pin_set(led_pins[i]);
                 }
+                TAG_FIELD_LED_ON();  // Turn on RF LED
 
                 // Stop sleep timer while field is active
                 NRF_LOG_INFO("Stopping sleep timer for field generator");
@@ -835,6 +841,8 @@ static void run_button_function_by_settings(settings_button_function_t sbf) {
             } else {
                 pcd_14a_reader_antenna_off();
                 m_is_field_on = false;
+                m_field_gen_activation_button = 0;
+                m_field_gen_leds_on = true;
                 NRF_LOG_INFO("NFC field OFF");
                 
                 // If we're not in reader mode, clean up the hardware
@@ -844,6 +852,15 @@ static void run_button_function_by_settings(settings_button_function_t sbf) {
                     nrf_gpio_pin_clear(READER_POWER);   // reader power disable
                     nrf_gpio_pin_set(HF_ANT_SEL);       // hf ant switch back to tag mode
                 }
+                
+                // Stop any running animations
+                rgb_marquee_stop();
+                
+                // Quick animation refresh before restoring normal LED
+                uint8_t slot = tag_emulation_get_slot();
+                uint8_t dir = slot > 3 ? 1 : 0;
+                uint8_t color = get_color_by_slot(slot);
+                ledblink2(color, !dir, dir ? slot : 7 - slot);
                 
                 // Restore normal LED
                 light_up_by_slot();
@@ -866,25 +883,134 @@ static void run_button_function_by_settings(settings_button_function_t sbf) {
     }
 }
 
+#if defined(PROJECT_CHAMELEON_ULTRA)
+/**@brief Toggle LEDs when field generator is active
+ * Turns RF LED and RGB strip on/off while keeping field generator active
+ */
+static void field_generator_toggle_leds(void) {
+    m_field_gen_leds_on = !m_field_gen_leds_on;
+    
+    // Get LED pins once
+    uint32_t *led_pins = hw_get_led_array();
+    
+    if (m_field_gen_leds_on) {
+        // Turn LEDs on - set initial color and turn on RF LED, rainbow animation will continue
+        set_slot_light_color(RGB_RED);
+        for (int i = 0; i < RGB_LIST_NUM; i++) {
+            nrf_gpio_pin_set(led_pins[i]);
+        }
+        TAG_FIELD_LED_ON();
+        NRF_LOG_INFO("Field gen LEDs ON");
+    } else {
+        // Turn LEDs off - both RF LED, RGB strip, and slot LED
+        TAG_FIELD_LED_OFF();
+        rgb_marquee_stop();  // Stop any marquee animations
+        for (int i = 0; i < RGB_LIST_NUM; i++) {
+            nrf_gpio_pin_clear(led_pins[i]);
+        }
+        // Also turn off the slot LED (LED_1 through LED_8)
+        nrf_gpio_pin_clear(LED_1);
+        nrf_gpio_pin_clear(LED_2);
+        nrf_gpio_pin_clear(LED_3);
+        nrf_gpio_pin_clear(LED_4);
+        nrf_gpio_pin_clear(LED_5);
+        nrf_gpio_pin_clear(LED_6);
+        nrf_gpio_pin_clear(LED_7);
+        nrf_gpio_pin_clear(LED_8);
+        NRF_LOG_INFO("Field gen LEDs OFF");
+    }
+}
+#endif
+
 /**@brief button press event process
  */
 extern bool g_usb_led_marquee_enable;
 static void button_press_process(void) {
     // Make sure that one of the AB buttons has a click event
     if (m_is_b_btn_release || m_is_a_btn_release) {
+#if defined(PROJECT_CHAMELEON_ULTRA)
+        // Special handling when field generator is active
+        if (m_is_field_on) {
+            // Use the button that activated the field generator
+            char field_gen_button = m_field_gen_activation_button;
+            
+            // If not tracked, determine from configuration (fallback)
+            if (field_gen_button == 0) {
+                bool a_is_field_gen = (settings_get_button_press_config('a') == SettingsButtonNfcFieldGenerator) ||
+                                      (settings_get_long_button_press_config('a') == SettingsButtonNfcFieldGenerator);
+                bool b_is_field_gen = (settings_get_button_press_config('b') == SettingsButtonNfcFieldGenerator) ||
+                                      (settings_get_long_button_press_config('b') == SettingsButtonNfcFieldGenerator);
+                if (a_is_field_gen) {
+                    field_gen_button = 'a';
+                    m_field_gen_activation_button = 'a';  // Update tracked button
+                } else if (b_is_field_gen) {
+                    field_gen_button = 'b';
+                    m_field_gen_activation_button = 'b';  // Update tracked button
+                }
+            }
+            
+            // Check if the pressed button matches the field gen button
+            bool is_field_gen_button = (field_gen_button == 'a' && m_is_a_btn_release) ||
+                                       (field_gen_button == 'b' && m_is_b_btn_release);
+            
+            if (is_field_gen_button) {
+                if (m_is_btn_long_press) {
+                    // Hold: Disable field generator
+                    run_button_function_by_settings(SettingsButtonNfcFieldGenerator);
+                } else {
+                    // Single press: Toggle LEDs (RF LED and RGB strip)
+                    field_generator_toggle_leds();
+                }
+            }
+            // Clear button release flags and don't restart sleep timer while field is on
+            m_is_a_btn_release = false;
+            m_is_b_btn_release = false;
+            return;
+        }
+#endif
+        
+        // Normal button handling when field generator is off
         if (m_is_a_btn_release) {
             if (!m_is_btn_long_press) {
-                run_button_function_by_settings(settings_get_button_press_config('a'));
+                settings_button_function_t func = settings_get_button_press_config('a');
+#if defined(PROJECT_CHAMELEON_ULTRA)
+                // Track which button activates field generator
+                if (func == SettingsButtonNfcFieldGenerator) {
+                    m_field_gen_activation_button = 'a';
+                }
+#endif
+                run_button_function_by_settings(func);
             } else {
-                run_button_function_by_settings(settings_get_long_button_press_config('a'));
+                settings_button_function_t func = settings_get_long_button_press_config('a');
+#if defined(PROJECT_CHAMELEON_ULTRA)
+                // Track which button activates field generator
+                if (func == SettingsButtonNfcFieldGenerator) {
+                    m_field_gen_activation_button = 'a';
+                }
+#endif
+                run_button_function_by_settings(func);
             }
             m_is_a_btn_release = false;
         }
         if (m_is_b_btn_release) {
             if (!m_is_btn_long_press) {
-                run_button_function_by_settings(settings_get_button_press_config('b'));
+                settings_button_function_t func = settings_get_button_press_config('b');
+#if defined(PROJECT_CHAMELEON_ULTRA)
+                // Track which button activates field generator
+                if (func == SettingsButtonNfcFieldGenerator) {
+                    m_field_gen_activation_button = 'b';
+                }
+#endif
+                run_button_function_by_settings(func);
             } else {
-                run_button_function_by_settings(settings_get_long_button_press_config('b'));
+                settings_button_function_t func = settings_get_long_button_press_config('b');
+#if defined(PROJECT_CHAMELEON_ULTRA)
+                // Track which button activates field generator
+                if (func == SettingsButtonNfcFieldGenerator) {
+                    m_field_gen_activation_button = 'b';
+                }
+#endif
+                run_button_function_by_settings(func);
             }
             m_is_b_btn_release = false;
         }
