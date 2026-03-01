@@ -76,6 +76,9 @@
 #define DATA_CMD_HF14A_SET_FIELD_ON             (2100)
 #define DATA_CMD_HF14A_SET_FIELD_OFF            (2101)
 
+#define DATA_CMD_HF14A_GET_CONFIG               (2200)
+#define DATA_CMD_HF14A_SET_CONFIG               (2201)
+
 //
 // ******************************************************************
 
@@ -87,10 +90,14 @@
 //
 #define DATA_CMD_EM410X_SCAN                    (3000)
 #define DATA_CMD_EM410X_WRITE_TO_T55XX          (3001)
+#define DATA_CMD_EM410X_ELECTRA_WRITE_TO_T55XX  (3006)
 #define DATA_CMD_HIDPROX_SCAN                   (3002)
 #define DATA_CMD_HIDPROX_WRITE_TO_T55XX         (3003)
 #define DATA_CMD_VIKING_SCAN                    (3004)
 #define DATA_CMD_VIKING_WRITE_TO_T55XX          (3005)
+#define DATA_CMD_ADC_GENERIC_READ               (3009)
+#define DATA_CMD_GENERIC_READ                   (3007)
+#define DATA_CMD_CORR_GENERIC_READ              (3008)
 
 //
 // ******************************************************************

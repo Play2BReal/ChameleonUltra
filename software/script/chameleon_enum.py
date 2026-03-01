@@ -73,13 +73,17 @@ class Command(enum.IntEnum):
     MF1_HARDNESTED_ACQUIRE = 2013
     MF1_ENC_NESTED_ACQUIRE = 2014
     MF1_CHECK_KEYS_ON_BLOCK = 2015
+    HF14A_GET_CONFIG = 2200
+    HF14A_SET_CONFIG = 2201
 
     EM410X_SCAN = 3000
     EM410X_WRITE_TO_T55XX = 3001
+    EM410X_ELECTRA_WRITE_TO_T55XX = 3006
     HIDPROX_SCAN = 3002
     HIDPROX_WRITE_TO_T55XX = 3003
     VIKING_SCAN = 3004
     VIKING_WRITE_TO_T55XX = 3005
+    ADC_GENERIC_READ = 3009
 
     MF1_WRITE_EMU_BLOCK_DATA = 4000
     HF14A_SET_ANTI_COLL_DATA = 4001
@@ -123,6 +127,9 @@ class Command(enum.IntEnum):
     MF0_NTAG_GET_DETECTION_ENABLE = 4036
     # FIXME: not implemented
     MF0_NTAG_GET_EMULATOR_CONFIG = 4037
+
+    MF1_SET_FIELD_OFF_DO_RESET = 4038
+    MF1_GET_FIELD_OFF_DO_RESET = 4039
 
     EM410X_SET_EMU_ID = 5000
     EM410X_GET_EMU_ID = 5001
@@ -258,6 +265,7 @@ class TagSpecificType(enum.IntEnum):
     EM410X_16 = 101
     EM410X_32 = 102
     EM410X_64 = 103
+    EM410X_ELECTRA = 104
     # FDX-B
     # securakey
     # gallagher
@@ -349,6 +357,8 @@ class TagSpecificType(enum.IntEnum):
             return "EM410X/32"
         elif self == TagSpecificType.EM410X_64:
             return "EM410X/64"
+        elif self == TagSpecificType.EM410X_ELECTRA:
+            return "EM410X Electra"
         elif self == TagSpecificType.HIDProx:
             return "HIDProx"
         elif self == TagSpecificType.Viking:
@@ -503,6 +513,7 @@ class MifareClassicDarksideStatus(enum.IntEnum):
 class AnimationMode(enum.IntEnum):
     FULL = 0
     MINIMAL = 1
+    SYMMETRIC = 3
     NONE = 2
 
     def __str__(self):
@@ -510,6 +521,8 @@ class AnimationMode(enum.IntEnum):
             return "Full animation"
         elif self == AnimationMode.MINIMAL:
             return "Minimal animation"
+        elif self == AnimationMode.SYMMETRIC:
+            return "Symmetric animation"
         elif self == AnimationMode.NONE:
             return "No animation"
 
@@ -627,4 +640,3 @@ class HIDFormat(enum.IntEnum):
         if self in descriptions:
             return descriptions[self]
         return "Invalid"
-
